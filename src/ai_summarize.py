@@ -281,6 +281,8 @@ async def main():
         ]))
     }
     merged_content = await merge_sections(llm, gathered_sections, sem)
+    # Fix % issue in bibtex
+    merged_content = merged_content.replace('%', '\\%')
     print(merged_content)
     print('-' * 20)
     print(Usage())

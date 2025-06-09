@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from typing import Dict, List
 
@@ -112,6 +113,84 @@ class Usage():
             f'output_tokens={self.output_tokens}, '
             f'cached_tokens={self.cached_tokens})'
         )
+
+
+class StorageWithLock():
+    def __init__(self, name: str):
+        self.path = os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), name)
+        self.lock_file = f'{self.path}.lock'
+        if not os.path.exists(self.path):
+            open(self.path, 'w').close()
+
+    async def _wait_for_lock(self):
+        while os.path.exists(self.lock_file):
+            await asyncio.sleep(0.1)
+
+    async def _lock(self):
+        while True:
+            try:
+                # Try to create a lock file
+                with open(self.lock_file, 'x'):
+                    return
+            except FileExistsError:
+                # If the lock file exists, wait and retry
+                await self._wait_for_lock()
+
+    async def _unlock(self):
+        try:
+            # Remove the lock file
+            os.remove(self.lock_file)
+        except FileNotFoundError:
+            pass
+
+    async def check_exists(self, line: str) -> bool:
+        '''
+        Checks if a line exists in the storage file.
+
+        Args:
+            line (str): The line to check.
+        Returns:
+            bool: True if the line exists, False otherwise.
+        '''
+        await self._lock()
+        exists = False
+        with open(self.path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        for l in lines:
+            if l.strip() == line.strip():
+                exists = True
+                break
+        await self._unlock()
+        return exists
+
+    async def add_line(self, line: str):
+        '''
+        Adds a line to the storage file if it does not already exist.
+
+        Args:
+            line (str): The line to add.
+        '''
+        await self._lock()
+        with open(self.path, 'a', encoding='utf-8') as f:
+            f.write(line.strip() + '\n')
+        await self._unlock()
+
+    async def remove_line(self, line: str):
+        '''
+        Removes a line from the storage file if it exists.
+
+        Args:
+            line (str): The line to remove.
+        '''
+        await self._lock()
+        with open(self.path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        with open(self.path, 'w', encoding='utf-8') as f:
+            for l in lines:
+                if l.strip() != line.strip():
+                    f.write(l)
+        await self._unlock()
 
 
 def read_document(path: str):
@@ -260,6 +339,11 @@ async def main():
     '''
     Main function
     '''
+    storage = StorageWithLock('processing.list')
+    if await storage.check_exists(PDF_FILE):
+        raise ValueError(f'File {PDF_FILE} is already being processed.')
+    await storage.add_line(PDF_FILE)
+
     document = read_document(PDF_FILE)
     llm = openai.AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
     sem = asyncio.Semaphore(5)  # Limit concurrent requests
@@ -286,6 +370,7 @@ async def main():
     print(merged_content)
     print('-' * 20)
     print(Usage())
+    await storage.remove_line(PDF_FILE)
 
 
 if __name__ == '__main__':

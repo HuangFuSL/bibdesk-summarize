@@ -81,7 +81,11 @@ MERGE_PROMPT = '''
 以下是一个论文的各个部分的内容。请你将这些内容用中文合并成一篇文章，以详细介绍这篇论文的主要内容和贡献。你需要确保术语准确、逻辑连贯、语句通顺，不遗漏原文细节。部分术语、缩写等可以保留英文原文。
 
 ## Output
-你的输出是一段或多段文本。
+你的输出是一段或多段**符合LaTeX语法的文本**
+
+1. 特别地，你需要使用`\\par`分段，使用`$`和LaTeX语法来输出数学公式和符号，使用`\\%`转义`%`等。
+2. 你也可以用其他来自amsmath、amssymb、geometry包，以及原生的LaTeX特性。
+3. 你不需要输出上下的preamble部分，或是环境的`\\begin`和`\\end`等。
 '''
 
 
@@ -108,10 +112,15 @@ class Usage():
             self.cached_tokens += usage.prompt_tokens_details.cached_tokens
 
     def __str__(self):
+        if self.cached_tokens:
+            return (
+                f'Usage(input_tokens={self.input_tokens}, '
+                f'output_tokens={self.output_tokens}, '
+                f'cached_tokens={self.cached_tokens})'
+            )
         return (
             f'Usage(input_tokens={self.input_tokens}, '
-            f'output_tokens={self.output_tokens}, '
-            f'cached_tokens={self.cached_tokens})'
+            f'output_tokens={self.output_tokens})'
         )
 
 
@@ -366,10 +375,11 @@ async def main():
     }
     merged_content = await merge_sections(llm, gathered_sections, sem)
     # Fix % issue in bibtex
-    merged_content = merged_content.replace('%', '\\%')
-    print(merged_content)
-    print('-' * 20)
-    print(Usage())
+    print(merged_content, end='\\par\n')
+    print('\\noindent\\rule{\\linewidth}{1pt}', end='\\par\n')
+    print(f'Endpoint: {BASE_URL}', end='\\par\n')
+    print(f'Model: {MODEL_NAME}', end='\\par\n')
+    print(str(Usage()).replace('_', '\\_'))
     await storage.remove_line(PDF_FILE)
 
 
